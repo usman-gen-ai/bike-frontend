@@ -1,6 +1,10 @@
 {
   "rewrites": [
     {
+      "source": "/backend",
+      "destination": "http://44.199.217.199:3333/"
+    },
+    {
       "source": "/backend/:path*",
       "destination": "http://44.199.217.199:3333/:path*"
     }

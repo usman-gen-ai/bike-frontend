@@ -30,7 +30,7 @@ export const Dashboard = () => {
   const checkBackendStatus = async () => {
     setBackendStatus('checking');
     try {
-      const res = await fetch(`${BACKEND_URL}/`, { signal: AbortSignal.timeout(5000) });
+      const res = await fetch(`${BACKEND_URL}`, { signal: AbortSignal.timeout(5000) });
       setBackendStatus(res.ok ? 'online' : 'offline');
     } catch {
       setBackendStatus('offline');
