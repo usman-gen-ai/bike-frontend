@@ -13,7 +13,7 @@ import { BikeDetailModal } from './BikeDetailModal';
 import { EditBikeModal } from './EditBikeModal';
 import { cn } from '@lib/utils';
 
-const BACKEND_URL = 'http://44.199.217.199:3333';
+const BACKEND_URL = '/backend';
 
 export const Dashboard = () => {
   const [bikes, setBikes] = useState<Bike[]>([]);
