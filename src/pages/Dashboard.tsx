@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { PlusIcon, MagnifyingGlassIcon, ArrowPathIcon, FunnelIcon } from '@heroicons/react/24/outline';
+import { MagnifyingGlassIcon, ArrowPathIcon, ServerIcon } from '@heroicons/react/24/outline';
+import { CheckCircleIcon, XCircleIcon } from '@heroicons/react/24/solid';
 import { api, type Bike } from '@lib/api';
 import { BikeCard } from '@components/BikeCard';
 import { Button } from '@components/ui/Button';
@@ -12,6 +13,8 @@ import { BikeDetailModal } from './BikeDetailModal';
 import { EditBikeModal } from './EditBikeModal';
 import { cn } from '@lib/utils';
 
+const BACKEND_URL = 'http://44.199.217.199:3333';
+
 export const Dashboard = () => {
   const [bikes, setBikes] = useState<Bike[]>([]);
   const [filteredBikes, setFilteredBikes] = useState<Bike[]>([]);
@@ -22,6 +25,17 @@ export const Dashboard = () => {
   const [detailModalOpen, setDetailModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editingBike, setEditingBike] = useState<Bike | null>(null);
+  const [backendStatus, setBackendStatus] = useState<'idle' | 'checking' | 'online' | 'offline'>('idle');
+
+  const checkBackendStatus = async () => {
+    setBackendStatus('checking');
+    try {
+      const res = await fetch(`${BACKEND_URL}/`, { signal: AbortSignal.timeout(5000) });
+      setBackendStatus(res.ok ? 'online' : 'offline');
+    } catch {
+      setBackendStatus('offline');
+    }
+  };
 
   const fetchBikes = async () => {
     setLoading(true);
@@ -155,6 +169,36 @@ export const Dashboard = () => {
               <Button variant="outline" size="sm" onClick={fetchBikes} disabled={loading}>
                 <ArrowPathIcon className="h-4 w-4 mr-1" />
                 Refresh
+              </Button>
+
+              {/* Backend Status Button */}
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={checkBackendStatus}
+                disabled={backendStatus === 'checking'}
+                className={cn(
+                  'flex items-center gap-1.5',
+                  backendStatus === 'online' && 'border-green-500 text-green-600',
+                  backendStatus === 'offline' && 'border-red-500 text-red-600'
+                )}
+              >
+                {backendStatus === 'checking' ? (
+                  <ArrowPathIcon className="h-4 w-4 animate-spin" />
+                ) : backendStatus === 'online' ? (
+                  <CheckCircleIcon className="h-4 w-4 text-green-500" />
+                ) : backendStatus === 'offline' ? (
+                  <XCircleIcon className="h-4 w-4 text-red-500" />
+                ) : (
+                  <ServerIcon className="h-4 w-4" />
+                )}
+                {backendStatus === 'checking'
+                  ? 'Checking...'
+                  : backendStatus === 'online'
+                  ? 'Backend Online'
+                  : backendStatus === 'offline'
+                  ? 'Backend Offline'
+                  : 'Check Backend'}
               </Button>
             </div>
           </div>
