@@ -13,7 +13,7 @@ import { BikeDetailModal } from './BikeDetailModal';
 import { EditBikeModal } from './EditBikeModal';
 import { cn } from '@lib/utils';
 
-const BACKEND_URL = '/backend';
+const BACKEND_URL = 'https://bkkautomation.duckdns.org';
 
 export const Dashboard = () => {
   const [bikes, setBikes] = useState<Bike[]>([]);
