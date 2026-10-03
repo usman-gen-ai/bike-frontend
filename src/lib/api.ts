@@ -2,8 +2,290 @@ import axios, { type AxiosInstance, type AxiosError } from 'axios';
 import type { Bike, FileRecord, BikeApiResponse, BikesListResponse, UpdateImageStatusRequest } from '@/types/index';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:3002';
+const BIKES_API_BASE = import.meta.env.VITE_BIKES_API_BASE || 'https://bkkautomation.duckdns.org';
 
-export { type Bike, type FileRecord };
+export { type Bike, type FileRecord }
+
+// ── Bikes API types ────────────────────────────────────────────────────────
+
+export interface MainModel {
+  id: number
+  name: string
+  slug: string
+  productionModelsCount: number
+  generationsCount: number
+}
+
+export interface ProductionModel {
+  id: number
+  name: string
+  slug: string
+  status: string
+  generationsCount: number
+  main_model_id: number
+}
+
+export type AssetStatus = 'not_ready' | 'ready' | 'processing' | 'completed' | 'failed'
+
+export interface GenerationAssetState {
+  video_status: AssetStatus
+  thumbnail_status: AssetStatus
+  selection_touched_at: string | null
+  images_count: number
+  video_selected_count: number
+  thumbnail_selected_count: number
+  can_mark_video_ready: boolean
+  can_mark_thumbnail_ready: boolean
+}
+
+export interface GenerationItem extends GenerationAssetState {
+  id: number
+  title: string
+  url: string
+  status: string
+  production_model_id: number
+  detail: GenerationDetail | null
+}
+
+export interface GalleryImage {
+  id: number
+  generation_id: number
+  file_name: string
+  url: string | null
+  mime_type: string | null
+  file_size: number | null
+  is_video_source: boolean
+  is_thumbnail_source: boolean
+  is_replaced: boolean
+}
+
+export interface GalleryResponse {
+  generation: { id: number; title: string } & GenerationAssetState
+  images: GalleryImage[]
+}
+
+export type AssetTarget = 'video' | 'thumbnail'
+
+export interface GenerationImage {
+  id: number
+  fileName: string
+  s3Path: string
+  mimeType: string | null
+  fileSize: number | null
+  originalUrl: string | null
+}
+
+export interface GenerationDetail {
+  id: number
+  generationId: number
+  bikeName: string | null
+  make: string | null
+  model: string | null
+  year: string | null
+  category: string | null
+  engineType: string | null
+  displacementCc: string | null
+  cylinders: string | null
+  boreStroke: string | null
+  compressionRatio: string | null
+  valveSystem: string | null
+  fuelSystem: string | null
+  coolingSystem: string | null
+  lubrication: string | null
+  starter: string | null
+  powerHp: string | null
+  powerKw: string | null
+  torqueNm: string | null
+  torqueLbft: string | null
+  topSpeed: string | null
+  gearbox: string | null
+  clutch: string | null
+  finalDrive: string | null
+  frameType: string | null
+  frontSuspension: string | null
+  rearSuspension: string | null
+  frontWheelTravel: string | null
+  rearWheelTravel: string | null
+  frontBrake: string | null
+  rearBrake: string | null
+  abs: string | null
+  frontTyre: string | null
+  rearTyre: string | null
+  lengthMm: string | null
+  widthMm: string | null
+  heightMm: string | null
+  seatHeightMm: string | null
+  wheelbaseMm: string | null
+  groundClearanceMm: string | null
+  dryWeightKg: string | null
+  wetWeightKg: string | null
+  fuelCapacityL: string | null
+  fuelConsumption: string | null
+  rangeKm: string | null
+  reserveL: string | null
+  alternator: string | null
+  battery: string | null
+  colors: string | null
+  priceMsrp: string | null
+  rating: string | null
+  reviewCount: string | null
+  description: string | null
+  sourceUrl: string | null
+}
+
+export interface GenerationFull {
+  id: number
+  title: string
+  url: string
+  status: string
+  production_model: { id: number; name: string; slug: string }
+  main_model: { id: number; name: string; slug: string }
+  detail: GenerationDetail | null
+  images: GenerationImage[]
+}
+
+// ── Bikes API client ───────────────────────────────────────────────────────
+
+class BikesApiClient {
+  private client: AxiosInstance
+
+  constructor() {
+    this.client = axios.create({
+      baseURL: `${BIKES_API_BASE}/api/v1/bikes`,
+      timeout: 30000,
+      headers: { 'Content-Type': 'application/json' },
+    })
+  }
+
+  async getMainModels(): Promise<MainModel[]> {
+    const res = await this.client.get<{ status: boolean; data: MainModel[] }>('/main-models')
+    return res.data.data
+  }
+
+  async getProductionModels(mainModelSlug: string): Promise<{ main_model: MainModel; production_models: ProductionModel[] }> {
+    const res = await this.client.get(`/main-models/${mainModelSlug}/production-models`)
+    return res.data.data
+  }
+
+  async getGenerations(productionModelSlug: string): Promise<{ production_model: ProductionModel; generations: GenerationItem[] }> {
+    const res = await this.client.get(`/production-models/${productionModelSlug}/generations`)
+    return res.data.data
+  }
+
+  async getGenerationDetail(generationId: number): Promise<GenerationFull> {
+    const res = await this.client.get(`/generations/${generationId}`)
+    return res.data.data
+  }
+}
+
+export const bikesApi = new BikesApiClient()
+
+// ── Auth (token kept in localStorage) ──────────────────────────────────────
+
+const TOKEN_KEY = 'bike_admin_token'
+
+export const auth = {
+  getToken: (): string | null => localStorage.getItem(TOKEN_KEY),
+  setToken: (token: string) => localStorage.setItem(TOKEN_KEY, token),
+  clear: () => localStorage.removeItem(TOKEN_KEY),
+  isLoggedIn: (): boolean => !!localStorage.getItem(TOKEN_KEY),
+
+  async login(email: string, password: string): Promise<void> {
+    const res = await axios.post(`${BIKES_API_BASE}/api/v1/auth/login`, { email, password })
+    const token = res.data?.data?.token
+    if (!token) throw new Error('Login failed: no token received')
+    auth.setToken(token)
+  },
+
+  async logout(): Promise<void> {
+    try {
+      await axios.post(`${BIKES_API_BASE}/api/v1/account/logout`, null, {
+        headers: { Authorization: `Bearer ${auth.getToken()}` },
+      })
+    } catch {
+      /* token is dropped locally either way */
+    }
+    auth.clear()
+  },
+}
+
+/** Human readable message from an axios / backend error. */
+export const getErrorMessage = (err: unknown): string => {
+  const e = err as AxiosError<any>
+  return (
+    e?.response?.data?.errors?.[0]?.message ||
+    e?.response?.data?.message ||
+    (err instanceof Error ? err.message : 'Something went wrong')
+  )
+}
+
+// ── Admin (gallery / workflow) API — requires login ────────────────────────
+
+class AdminApiClient {
+  private client: AxiosInstance
+
+  constructor() {
+    this.client = axios.create({
+      baseURL: `${BIKES_API_BASE}/api/v1/admin`,
+      timeout: 60000,
+    })
+
+    this.client.interceptors.request.use((config) => {
+      const token = auth.getToken()
+      if (token) config.headers.Authorization = `Bearer ${token}`
+      return config
+    })
+
+    this.client.interceptors.response.use(
+      (r) => r,
+      (error: AxiosError) => {
+        if (error.response?.status === 401) {
+          auth.clear()
+          window.location.assign('/login')
+        }
+        return Promise.reject(error)
+      }
+    )
+  }
+
+  async getGallery(generationId: number): Promise<GalleryResponse> {
+    const res = await this.client.get(`/generations/${generationId}/images`)
+    return res.data.data
+  }
+
+  async updateSelection(
+    generationId: number,
+    target: AssetTarget,
+    imageIds: number[]
+  ): Promise<GenerationAssetState & { id: number }> {
+    const res = await this.client.patch(`/generations/${generationId}/images/selection`, {
+      [target]: imageIds,
+    })
+    return res.data.data
+  }
+
+  async markReady(
+    generationId: number,
+    target: AssetTarget
+  ): Promise<GenerationAssetState & { id: number }> {
+    const res = await this.client.patch(`/generations/${generationId}/${target}-ready`)
+    return res.data.data
+  }
+
+  async replaceImage(
+    fileId: number,
+    file: File
+  ): Promise<{ image: GalleryImage; used_in: AssetTarget[]; notice: string }> {
+    const form = new FormData()
+    form.append('image', file)
+    const res = await this.client.put(`/files/${fileId}/replace`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return res.data.data
+  }
+}
+
+export const adminApi = new AdminApiClient()
 
 class ApiClient {
   private client: AxiosInstance;

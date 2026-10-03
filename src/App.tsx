@@ -1,15 +1,20 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
-import { Dashboard } from './pages/Dashboard';
-import './index.css';
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import { Dashboard } from './pages/Dashboard'
+import { BikesPage } from './pages/BikesPage'
+import { LoginPage } from './pages/LoginPage'
+import { RequireAuth } from './components/RequireAuth'
+import './index.css'
 
 function App() {
   return (
     <BrowserRouter>
       <Routes>
-        <Route path="/" element={<Dashboard />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/" element={<RequireAuth><BikesPage /></RequireAuth>} />
+        <Route path="/legacy" element={<Dashboard />} />
       </Routes>
     </BrowserRouter>
-  );
+  )
 }
 
-export default App;
+export default App
