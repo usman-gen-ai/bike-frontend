@@ -1,8 +1,6 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
-import { useNavigate } from 'react-router-dom'
 import {
   ArrowPathIcon,
-  ArrowRightOnRectangleIcon,
   ChevronDownIcon,
   CubeTransparentIcon,
   MagnifyingGlassIcon,
@@ -11,7 +9,6 @@ import {
 } from '@heroicons/react/24/outline'
 import {
   adminApi,
-  auth,
   bikesApi,
   getErrorMessage,
   type AssetTarget,
@@ -25,6 +22,7 @@ import { StatusBadge } from '@components/StatusBadges'
 import { GenerationCard } from '@components/GenerationCard'
 import { GalleryModal } from '@components/GalleryModal'
 import { ToastHost, useToasts } from '@components/Toast'
+import { AppHeader } from '@components/AppHeader'
 
 const StatCard = ({ icon: Icon, label, value }: { icon: typeof Squares2X2Icon; label: string; value: number }) => (
   <div className="flex items-center gap-3 rounded-xl bg-white/10 border border-white/10 px-4 py-3 backdrop-blur">
@@ -37,7 +35,6 @@ const StatCard = ({ icon: Icon, label, value }: { icon: typeof Squares2X2Icon; l
 )
 
 export const BikesPage = () => {
-  const navigate = useNavigate()
   const { toasts, notify, dismiss } = useToasts()
 
   const [mainModels, setMainModels] = useState<MainModel[]>([])
@@ -120,11 +117,6 @@ export const BikesPage = () => {
     }
   }
 
-  const logout = async () => {
-    await auth.logout()
-    navigate('/login', { replace: true })
-  }
-
   // ── derived ─────────────────────────────────────────────────────────────
   const grouped = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -146,7 +138,8 @@ export const BikesPage = () => {
   )
 
   return (
-    <div className="min-h-screen bg-slate-50">
+    <div className="min-h-screen bg-slate-50 pt-14">
+      <AppHeader />
       {/* Hero header */}
       <header className="bg-gradient-to-br from-slate-900 via-blue-950 to-primary">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-5 pb-6">
@@ -167,9 +160,6 @@ export const BikesPage = () => {
                   className="w-full pl-9 pr-4 py-2.5 rounded-xl bg-white text-sm placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-300"
                 />
               </div>
-              <button onClick={logout} title="Sign out" className="p-2.5 rounded-xl bg-white/10 text-white hover:bg-white/20 transition-colors">
-                <ArrowRightOnRectangleIcon className="w-5 h-5" />
-              </button>
             </div>
           </div>
 
@@ -183,7 +173,7 @@ export const BikesPage = () => {
 
       {/* A–Z rail */}
       {letters.length > 0 && (
-        <nav className="sticky top-0 z-30 bg-white/90 backdrop-blur border-b border-gray-200">
+        <nav className="sticky top-14 z-30 bg-white/90 backdrop-blur border-b border-gray-200">
           <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2 flex gap-1 overflow-x-auto scrollbar-hide">
             {letters.map((l) => (
               <a key={l} href={`#letter-${l}`} className="w-8 h-8 flex-shrink-0 rounded-lg flex items-center justify-center text-xs font-bold text-gray-500 hover:bg-primary hover:text-white transition-colors">
@@ -203,7 +193,7 @@ export const BikesPage = () => {
         ) : (
           <div className="space-y-8">
             {letters.map((letter) => (
-              <section key={letter} id={`letter-${letter}`} className="scroll-mt-16">
+              <section key={letter} id={`letter-${letter}`} className="scroll-mt-28">
                 <div className="flex items-center gap-3 mb-3">
                   <div className="w-9 h-9 rounded-xl bg-primary text-white flex items-center justify-center text-sm font-bold shadow-sm">{letter}</div>
                   <div className="flex-1 h-px bg-gray-200" />

@@ -1,6 +1,9 @@
 @import "tailwindcss";
 
 @theme {
+  --font-display: 'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif;
+  --color-rec: #ff5a36;
+  --color-rec-hover: #e8431f;
   --color-primary: #1e40af;
   --color-primary-hover: #1e3a8a;
   --color-primary-light: #dbeafe;
@@ -32,6 +35,27 @@
   body {
     @apply bg-gray-50 text-gray-900 antialiased;
   }
+  /* Tailwind v4 resets buttons to cursor:default – restore pointer on every clickable control */
+  button:not(:disabled),
+  [role='button']:not([aria-disabled='true']),
+  [role='tab'],
+  [role='radio'],
+  [role='checkbox'],
+  summary,
+  select:not(:disabled),
+  label[for],
+  input[type='checkbox']:not(:disabled),
+  input[type='radio']:not(:disabled),
+  input[type='file']:not(:disabled),
+  input[type='submit']:not(:disabled),
+  input[type='button']:not(:disabled) {
+    cursor: pointer;
+  }
+  button:disabled,
+  input:disabled,
+  select:disabled {
+    cursor: not-allowed;
+  }
 }
 
 @layer utilities {
@@ -42,4 +66,45 @@
   .scrollbar-hide::-webkit-scrollbar {
     display: none;
   }
+}
+
+/* ── Video studio: motion + 3D empty state ─────────────────────────────── */
+@keyframes float-y { 0%,100% { transform: translateY(0) } 50% { transform: translateY(-10px) } }
+@keyframes spin-y { from { transform: rotateX(-24deg) rotateY(0deg) } to { transform: rotateX(-24deg) rotateY(360deg) } }
+@keyframes sweep { from { transform: translateX(-120%) } to { transform: translateX(220%) } }
+@keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 rgba(255,90,54,.45) } 100% { box-shadow: 0 0 0 14px rgba(255,90,54,0) } }
+@keyframes film-roll { from { background-position: 0 0 } to { background-position: 0 -48px } }
+@keyframes pop-in { from { opacity: 0; transform: translateY(8px) scale(.98) } to { opacity: 1; transform: none } }
+
+.anim-float { animation: float-y 5s ease-in-out infinite; }
+.anim-pop { animation: pop-in .35s cubic-bezier(.2,.8,.2,1) both; }
+.anim-sweep::after {
+  content: ''; position: absolute; inset: 0; width: 40%;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,.35), transparent);
+  animation: sweep 1.8s ease-in-out infinite;
+}
+.rec-dot { animation: pulse-ring 1.6s ease-out infinite; }
+
+.scene3d { perspective: 900px; }
+.scene3d .stage { transform-style: preserve-3d; transform: rotateX(58deg) rotateZ(-38deg); }
+.cube { position: relative; width: 64px; height: 64px; transform-style: preserve-3d; animation: spin-y 9s linear infinite; }
+.cube > i { position: absolute; inset: 0; display: grid; place-items: center; border-radius: 10px; border: 1px solid rgba(255,255,255,.35); backface-visibility: hidden; }
+.cube > i:nth-child(1) { transform: translateZ(32px); background: linear-gradient(135deg,#ff7a59,#ff5a36); }
+.cube > i:nth-child(2) { transform: rotateY(90deg) translateZ(32px); background: linear-gradient(135deg,#3b6cf0,#1e40af); }
+.cube > i:nth-child(3) { transform: rotateY(180deg) translateZ(32px); background: linear-gradient(135deg,#ff5a36,#c2310f); }
+.cube > i:nth-child(4) { transform: rotateY(-90deg) translateZ(32px); background: linear-gradient(135deg,#1e40af,#172a73); }
+.cube > i:nth-child(5) { transform: rotateX(90deg) translateZ(32px); background: #dbeafe; }
+.cube > i:nth-child(6) { transform: rotateX(-90deg) translateZ(32px); background: #0f172a; }
+
+.film-strip {
+  background-image:
+    linear-gradient(#0b1020 0 0),
+    repeating-linear-gradient(180deg, #e2e8f0 0 14px, transparent 14px 24px);
+  background-size: 100% 100%, 8px 48px;
+  background-repeat: no-repeat, repeat-y;
+  animation: film-roll 2.4s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .anim-float, .anim-pop, .rec-dot, .cube, .film-strip, .anim-sweep::after { animation: none !important; }
 }

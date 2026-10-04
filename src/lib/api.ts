@@ -144,6 +144,79 @@ export interface GenerationFull {
   images: GenerationImage[]
 }
 
+
+// ── Video tool types ───────────────────────────────────────────────────────
+
+export type VideoScope = 'main_model' | 'production_model' | 'generation' | 'custom'
+export type VideoOrientation = 'landscape' | 'portrait'
+export type VideoQuality = '480p' | '720p' | '1080p' | '2k' | '4k' | '8k'
+export type VideoStatus = 'queued' | 'processing' | 'completed' | 'failed'
+
+export interface VideoItemRecord {
+  position: number
+  generation_id: number
+  production_model_id: number | null
+  title: string
+  bike_name: string | null
+  images_count: number
+  start_second: number | null
+  end_second: number | null
+}
+
+export interface VideoRecord {
+  id: number
+  scope: VideoScope
+  orientation: VideoOrientation
+  quality: VideoQuality
+  resolution: string | null
+  status: VideoStatus
+  progress: number
+  attempts: number
+  error_message: string | null
+  generations_count: number
+  generations_preview?: string[]
+  duration_seconds: number | null
+  main_model: { id: number; name: string; slug: string } | null
+  production_model: { id: number; name: string; slug: string } | null
+  generation: { id: number; title: string } | null
+  file: { id: number; file_name: string; file_size: number | null; mime_type: string | null; url: string; download_url?: string | null } | null
+  started_at: string | null
+  completed_at: string | null
+  created_at: string
+  items?: VideoItemRecord[]
+}
+
+export interface VideoListFilters {
+  page?: number
+  limit?: number
+  scope?: VideoScope
+  orientation?: VideoOrientation
+  status?: VideoStatus
+  main_model_id?: number
+  production_model_id?: number
+  generation_id?: number
+}
+
+export interface VideoListResponse {
+  videos: VideoRecord[]
+  meta: { total: number; per_page: number; current_page: number; last_page: number }
+}
+
+export interface CreateVideoPayload {
+  scope: VideoScope
+  /** main_model | production_model | generation */
+  target_id?: number
+  /** custom: every ticked generation, rendered as one video */
+  generation_ids?: number[]
+  orientation: VideoOrientation
+  quality: VideoQuality
+}
+
+export interface CreateVideoResponse {
+  video: VideoRecord
+  skipped_generations: { generation_id: number; title: string; reason: string }[]
+}
+
 // ── Bikes API client ───────────────────────────────────────────────────────
 
 class BikesApiClient {
@@ -281,6 +354,27 @@ class AdminApiClient {
     const res = await this.client.put(`/files/${fileId}/replace`, form, {
       headers: { 'Content-Type': 'multipart/form-data' },
     })
+    return res.data.data
+  }
+
+  // ── Videos ──────────────────────────────────────────────────────────────
+  async createVideo(payload: CreateVideoPayload): Promise<CreateVideoResponse> {
+    const res = await this.client.post('/videos', payload)
+    return res.data.data
+  }
+
+  async listVideos(filters: VideoListFilters = {}): Promise<VideoListResponse> {
+    const res = await this.client.get('/videos', { params: filters })
+    return res.data.data
+  }
+
+  async getVideo(id: number): Promise<VideoRecord> {
+    const res = await this.client.get(`/videos/${id}`)
+    return res.data.data
+  }
+
+  async retryVideo(id: number): Promise<VideoRecord> {
+    const res = await this.client.post(`/videos/${id}/retry`)
     return res.data.data
   }
 }
