@@ -229,21 +229,29 @@ export const BikesPage = () => {
                                 {(prodMap[main.slug] ?? []).map((pm) => {
                                   const pmOpen = openProd === pm.slug
                                   return (
-                                    <div key={pm.id} className={cn('rounded-xl bg-white border overflow-hidden', pmOpen ? 'border-primary/30' : 'border-gray-200')}>
-                                      <button onClick={() => toggleProd(pm.slug)} className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-slate-50 transition-colors">
+                                    <div key={pm.id} className={cn('rounded-xl border overflow-hidden transition-all', pmOpen ? 'border-slate-300 shadow-sm' : 'border-slate-200/90')}>
+                                      <button
+                                        onClick={() => toggleProd(pm.slug)}
+                                        className={cn(
+                                          'w-full flex items-center justify-between gap-3 px-4 py-3 text-left transition-colors border-l-4',
+                                          pmOpen
+                                            ? 'bg-slate-100/90 border-l-primary text-slate-900'
+                                            : 'bg-slate-100/60 hover:bg-slate-100 border-l-slate-300 text-slate-800'
+                                        )}
+                                      >
                                         <div className="flex items-center gap-3 min-w-0">
                                           <ChevronDownIcon className={cn('w-4 h-4 transition-transform flex-shrink-0', pmOpen ? 'rotate-180 text-primary' : '-rotate-90 text-gray-400')} />
-                                          <span className="text-sm font-semibold text-gray-800 truncate">{pm.name}</span>
+                                          <span className="text-sm font-semibold truncate">{pm.name}</span>
                                         </div>
                                         <div className="flex items-center gap-2.5 flex-shrink-0">
                                           <StatusBadge status={pm.status} />
-                                          <span className="text-xs text-gray-400">{pm.generationsCount} gen</span>
+                                          <span className="px-2 py-0.5 rounded-md bg-white border border-slate-200/80 text-xs font-medium text-slate-600 shadow-2xs">{pm.generationsCount} gen</span>
                                         </div>
                                       </button>
 
                                       {/* Generations of this production model */}
                                       {pmOpen && (
-                                        <div className="border-t border-gray-100 bg-slate-50/70 p-3 space-y-2.5">
+                                        <div className="border-t border-slate-200/80 bg-slate-50/70 p-3 space-y-2.5">
                                           {loadingGen === pm.slug ? (
                                             <div className="flex items-center gap-2 px-2 py-3 text-xs text-gray-400"><ArrowPathIcon className="w-3.5 h-3.5 animate-spin" /> Loading generations…</div>
                                           ) : (genMap[pm.slug] ?? []).length === 0 ? (

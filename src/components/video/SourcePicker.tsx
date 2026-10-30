@@ -209,7 +209,16 @@ export const SourcePicker = ({ picked, onPickedChange, onError }: Props) => {
                       const none = eligibleN === 0
                       return (
                         <div key={pm.id} className="space-y-1.5">
-                          <div className={cn('ml-5 flex items-center gap-2.5 rounded-xl border bg-white px-3 py-2 transition-colors', n ? 'border-[#ff5a36]/40 bg-[#fff8f5]' : 'border-slate-200')}>
+                          <div
+                            className={cn(
+                              'ml-5 flex items-center gap-2.5 rounded-xl border px-3 py-2 transition-colors border-l-[3px]',
+                              n
+                                ? 'border-[#ff5a36]/40 border-l-[#ff5a36] bg-[#fff8f5]'
+                                : pOpen
+                                  ? 'border-slate-300 border-l-slate-400 bg-slate-100/90'
+                                  : 'border-slate-200 border-l-slate-300 bg-slate-100/60 hover:bg-slate-100'
+                            )}
+                          >
                             {busy.has(`p:${pm.slug}`) && !gens ? <ArrowPathIcon className="w-[18px] h-[18px] animate-spin text-slate-400" /> : (
                               <Box state={pState} disabled={none} label={`Select all generations of ${pm.name}`} onClick={() => togglePm(m, pm)} />
                             )}
