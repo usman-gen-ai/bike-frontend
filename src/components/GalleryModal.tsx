@@ -10,6 +10,7 @@ import {
   VideoCameraIcon,
   XMarkIcon,
   ArrowUpTrayIcon,
+  ArrowDownTrayIcon,
 } from '@heroicons/react/24/outline'
 import {
   adminApi,
@@ -55,6 +56,7 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
   const [pending, setPending] = useState<{ image: GalleryImage; file: File; localUrl: string } | null>(null)
   const [replacing, setReplacing] = useState(false)
   const [broken, setBroken] = useState<Set<number>>(new Set())
+  const [downloadingId, setDownloadingId] = useState<number | null>(null)
 
   const fileInput = useRef<HTMLInputElement>(null)
   const replaceTarget = useRef<GalleryImage | null>(null)
@@ -179,6 +181,34 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
     }
   }
 
+  const downloadImage = async (img: GalleryImage, e?: React.MouseEvent) => {
+    e?.stopPropagation()
+    if (!img.url) return
+    setDownloadingId(img.id)
+    try {
+      const res = await fetch(img.url)
+      if (!res.ok) throw new Error(`HTTP ${res.status}`)
+      const blob = await res.blob()
+      const blobUrl = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = blobUrl
+      a.download = img.file_name || `image-${img.id}.jpg`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 1000)
+    } catch {
+      const a = document.createElement('a')
+      a.href = img.url
+      a.download = img.file_name || `image-${img.id}.jpg`
+      document.body.appendChild(a)
+      a.click()
+      a.remove()
+    } finally {
+      setDownloadingId(null)
+    }
+  }
+
   const otherTab = tab === 'video' ? 'thumbnail' : 'video'
   const selectedCount = sel[tab].size
   const previewImg = preview !== null ? images[preview] : null
@@ -288,6 +318,18 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
                     {/* actions */}
                     <div className="absolute top-2 right-2 flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
                       <button
+                        title="Download image"
+                        onClick={(e) => downloadImage(img, e)}
+                        disabled={downloadingId === img.id}
+                        className="p-1.5 rounded-lg bg-black/55 text-white hover:bg-black/80 disabled:opacity-50"
+                      >
+                        {downloadingId === img.id ? (
+                          <ArrowPathIcon className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <ArrowDownTrayIcon className="w-3.5 h-3.5" />
+                        )}
+                      </button>
+                      <button
                         title="Preview" onClick={(e) => { e.stopPropagation(); setPreview(idx) }}
                         className="p-1.5 rounded-lg bg-black/55 text-white hover:bg-black/80"
                       ><ArrowsPointingOutIcon className="w-3.5 h-3.5" /></button>
@@ -375,19 +417,19 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
               <p className="text-xs text-white/70 truncate max-w-xs">{previewImg.file_name}</p>
               <div className="flex items-center gap-2">
                 {/* Download */}
-                <a
-                  href={previewImg.url ?? undefined}
-                  download={previewImg.file_name}
-                  target="_blank"
-                  rel="noreferrer"
+                <button
+                  type="button"
                   title="Download"
-                  className="p-2 rounded-full bg-white/10 text-white hover:bg-white/25 transition-colors"
-                  onClick={(e) => e.stopPropagation()}
+                  disabled={downloadingId === previewImg.id}
+                  className="p-2 rounded-full bg-white/10 text-white hover:bg-white/25 transition-colors disabled:opacity-50"
+                  onClick={(e) => downloadImage(previewImg, e)}
                 >
-                  <svg xmlns="http://www.w3.org/2000/svg" className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5 5-5M12 4v11" />
-                  </svg>
-                </a>
+                  {downloadingId === previewImg.id ? (
+                    <ArrowPathIcon className="w-5 h-5 animate-spin" />
+                  ) : (
+                    <ArrowDownTrayIcon className="w-5 h-5" />
+                  )}
+                </button>
                 {/* Close */}
                 <button
                   className="p-2 rounded-full bg-white/10 text-white hover:bg-white/25 transition-colors"
