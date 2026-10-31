@@ -458,7 +458,14 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
                     </div>
 
                     {/* Action buttons on card hover */}
-                    <div className="absolute top-2 right-2 flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                    <div className="absolute top-2 right-2 flex flex-col items-end gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                      {/* Upload Enhanced Image (sits above the row below, same enhance-upload flow) */}
+                      <button
+                        title="Upload enhanced image"
+                        onClick={(e) => { e.stopPropagation(); startUpload(img, 'enhanced') }}
+                        className="inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-violet-600 text-white text-[10px] font-semibold hover:bg-violet-700 shadow-sm"
+                      ><ArrowUpTrayIcon className="w-3.5 h-3.5" /> Upload</button>
+                    <div className="flex gap-1">
                       {/* Download */}
                       <button
                         title="Download image"
@@ -484,6 +491,7 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
                         onClick={(e) => { e.stopPropagation(); startUpload(img, 'enhanced') }}
                         className="p-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
                       ><SparklesIcon className="w-3.5 h-3.5" /></button>
+                    </div>
                     </div>
 
                     {/* Footer chips */}
