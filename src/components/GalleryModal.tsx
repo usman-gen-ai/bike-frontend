@@ -490,7 +490,7 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
                     <button
                       title="Upload enhanced image"
                       onClick={(e) => { e.stopPropagation(); startUpload(img, 'enhanced') }}
-                      className="absolute bottom-9 left-2 inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-violet-600 text-white text-[10px] font-semibold hover:bg-violet-700 shadow-sm opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
+                      className="absolute bottom-9 left-2 inline-flex items-center gap-1 px-2 py-1 rounded-lg bg-violet-600 text-white text-[10px] font-semibold hover:bg-violet-700 shadow-sm"
                     ><ArrowUpTrayIcon className="w-3.5 h-3.5" /> Upload</button>
 
                     {/* Footer chips */}
