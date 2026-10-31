@@ -13,6 +13,8 @@ import {
   ArrowDownTrayIcon,
   SparklesIcon,
   SwatchIcon,
+  ViewColumnsIcon,
+  RectangleStackIcon,
 } from '@heroicons/react/24/outline'
 import {
   adminApi,
@@ -24,6 +26,7 @@ import {
 } from '@lib/api'
 import { cn, formatBytes } from '@lib/utils'
 import { AssetBadge } from './StatusBadges'
+import { CanvasImageCompositor, type CanvasImageCompositorHandle } from './CanvasImageCompositor'
 
 interface Props {
   generation: GenerationItem
@@ -43,11 +46,19 @@ const TABS: { target: AssetTarget; label: string; icon: typeof PhotoIcon; active
   { target: 'thumbnail', label: 'Thumbnail Images', icon: PhotoIcon, active: 'bg-amber-500 text-white shadow-md', ring: 'ring-amber-500', chip: 'bg-amber-500' },
 ]
 
-type BgChoice = 'checker' | 'white' | 'black' | 'dark' | 'light' | 'custom'
+type BgChoice = 'checker' | 'white' | 'black' | 'dark' | 'light' | 'blue' | 'custom'
+
+const PRESET_COLORS: Record<string, string> = {
+  white: '#ffffff',
+  black: '#000000',
+  dark: '#0f172a',
+  light: '#f1f5f9',
+  blue: '#1e40af',
+}
 
 const isEnhancedImage = (img: GalleryImage): boolean => {
   const name = img.file_name?.toLowerCase() || ''
-  return name.includes('enhanced') || name.includes('-1.') || name.includes('_cutout') || img.mime_type === 'image/png'
+  return img.is_replaced || name.includes('enhanced') || name.includes('untitled') || name.includes('-1.') || name.includes('_cutout') || img.mime_type === 'image/png'
 }
 
 export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Props) => {
@@ -61,11 +72,12 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
   const [saved, setSaved] = useState<Record<AssetTarget, Set<number>>>({ video: new Set(), thumbnail: new Set() })
   const [saving, setSaving] = useState(false)
 
-  // Background color preview state
+  // Background color preview state for Canvas Image Compositor
   const [bgChoice, setBgChoice] = useState<BgChoice>('checker')
   const [customBgColor, setCustomBgColor] = useState('#2563eb')
 
   const [preview, setPreview] = useState<number | null>(null) // index in images
+  const [viewMode, setViewMode] = useState<'split' | 'single'>('split')
   const [pending, setPending] = useState<{ image: GalleryImage; file: File; localUrl: string; mode: 'enhanced' | 'replace' } | null>(null)
   const [uploading, setUploading] = useState(false)
   const [broken, setBroken] = useState<Set<number>>(new Set())
@@ -73,20 +85,13 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
 
   const fileInput = useRef<HTMLInputElement>(null)
   const uploadTarget = useRef<{ image: GalleryImage; mode: 'enhanced' | 'replace' } | null>(null)
+  const canvasRef = useRef<CanvasImageCompositorHandle>(null)
 
-  // ── dynamic background style for transparent cutout inspection ─────────
-  const bgStyle = useMemo(() => {
-    if (bgChoice === 'white') return { backgroundColor: '#ffffff' }
-    if (bgChoice === 'black') return { backgroundColor: '#000000' }
-    if (bgChoice === 'dark') return { backgroundColor: '#0f172a' }
-    if (bgChoice === 'light') return { backgroundColor: '#f1f5f9' }
-    if (bgChoice === 'custom') return { backgroundColor: customBgColor }
-    return {
-      backgroundImage: `linear-gradient(45deg, #e2e8f0 25%, transparent 25%), linear-gradient(-45deg, #e2e8f0 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #e2e8f0 75%), linear-gradient(-45deg, transparent 75%, #e2e8f0 75%)`,
-      backgroundSize: '16px 16px',
-      backgroundPosition: '0 0, 0 8px, 8px -8px, -8px 0',
-      backgroundColor: '#ffffff',
-    }
+  // Real canvas background color string passed into CanvasImageCompositor
+  const activeBgColor = useMemo(() => {
+    if (bgChoice === 'checker') return 'checker'
+    if (bgChoice === 'custom') return customBgColor
+    return PRESET_COLORS[bgChoice] || '#ffffff'
   }, [bgChoice, customBgColor])
 
   // ── load ────────────────────────────────────────────────────────────────
@@ -248,20 +253,30 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
   const previewImg = preview !== null ? images[preview] : null
   const hasBothSelections = useMemo(() => images.filter((i) => i.is_video_source && i.is_thumbnail_source).length, [images])
 
-  // Background picker component (reusable in toolbar and lightbox)
-  const renderBgSwitcher = () => (
-    <div className="inline-flex items-center gap-1.5 bg-gray-100/90 backdrop-blur-sm p-1 rounded-xl text-xs border border-gray-200/80 shadow-sm">
-      <span className="text-[11px] font-semibold text-gray-500 px-1.5 flex items-center gap-1">
+  // Determine if active preview image has a separate original version for side-by-side comparison
+  const hasOriginal = useMemo(() => {
+    if (!previewImg) return false
+    return Boolean(previewImg.original_url && previewImg.original_url !== previewImg.url)
+  }, [previewImg])
+
+  // Background palette switcher component (operates on the real HTML5 Canvas)
+  const renderBgSwitcher = (darkTheme = false) => (
+    <div className={cn(
+      'inline-flex items-center gap-1.5 p-1 rounded-xl text-xs transition-colors',
+      darkTheme ? 'bg-white/10 backdrop-blur-md border border-white/15' : 'bg-gray-100/90 border border-gray-200/80 shadow-sm'
+    )}>
+      <span className={cn('text-[11px] font-semibold px-1 flex items-center gap-1', darkTheme ? 'text-white/80' : 'text-gray-500')}>
         <SwatchIcon className="w-3.5 h-3.5 text-gray-400" /> BG:
       </span>
-      {/* Checkerboard */}
+
+      {/* Transparent Checkerboard */}
       <button
         type="button"
-        title="Transparent (Checkerboard)"
+        title="Transparent (Checkerboard Canvas Pattern)"
         onClick={() => setBgChoice('checker')}
         className={cn(
           'w-6 h-6 rounded-lg border text-[10px] font-bold transition-all shadow-sm',
-          bgChoice === 'checker' ? 'ring-2 ring-primary border-primary scale-105' : 'border-gray-300 opacity-80 hover:opacity-100'
+          bgChoice === 'checker' ? 'ring-2 ring-emerald-400 border-white scale-105' : 'border-gray-400/50 opacity-80 hover:opacity-100'
         )}
         style={{
           backgroundImage: `linear-gradient(45deg, #cbd5e1 25%, transparent 25%), linear-gradient(-45deg, #cbd5e1 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #cbd5e1 75%), linear-gradient(-45deg, transparent 75%, #cbd5e1 75%)`,
@@ -270,52 +285,68 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
           backgroundColor: '#ffffff',
         }}
       />
-      {/* White */}
+
+      {/* Pure White */}
       <button
         type="button"
-        title="White Background"
+        title="Pure White Background"
         onClick={() => setBgChoice('white')}
         className={cn(
           'w-6 h-6 rounded-lg border bg-white transition-all shadow-sm',
-          bgChoice === 'white' ? 'ring-2 ring-primary border-primary scale-105' : 'border-gray-300 opacity-80 hover:opacity-100'
+          bgChoice === 'white' ? 'ring-2 ring-emerald-400 border-emerald-400 scale-105' : 'border-gray-300 opacity-80 hover:opacity-100'
         )}
       />
-      {/* Black */}
+
+      {/* Deep Black */}
       <button
         type="button"
-        title="Black Background"
+        title="Deep Black Background"
         onClick={() => setBgChoice('black')}
         className={cn(
           'w-6 h-6 rounded-lg border bg-black transition-all shadow-sm',
-          bgChoice === 'black' ? 'ring-2 ring-primary border-primary scale-105' : 'border-transparent opacity-80 hover:opacity-100'
+          bgChoice === 'black' ? 'ring-2 ring-emerald-400 border-white scale-105' : 'border-neutral-700 opacity-80 hover:opacity-100'
         )}
       />
-      {/* Dark Slate */}
+
+      {/* Dark Slate Studio */}
       <button
         type="button"
-        title="Dark Slate (#0F172A)"
+        title="Dark Slate Studio (#0F172A)"
         onClick={() => setBgChoice('dark')}
         className={cn(
           'w-6 h-6 rounded-lg border bg-slate-900 transition-all shadow-sm',
-          bgChoice === 'dark' ? 'ring-2 ring-primary border-primary scale-105' : 'border-transparent opacity-80 hover:opacity-100'
+          bgChoice === 'dark' ? 'ring-2 ring-emerald-400 border-white scale-105' : 'border-neutral-700 opacity-80 hover:opacity-100'
         )}
       />
-      {/* Light Gray */}
+
+      {/* Soft Light Studio */}
       <button
         type="button"
-        title="Light Gray (#F1F5F9)"
+        title="Soft Light Studio (#F1F5F9)"
         onClick={() => setBgChoice('light')}
         className={cn(
           'w-6 h-6 rounded-lg border bg-slate-200 transition-all shadow-sm',
-          bgChoice === 'light' ? 'ring-2 ring-primary border-primary scale-105' : 'border-gray-300 opacity-80 hover:opacity-100'
+          bgChoice === 'light' ? 'ring-2 ring-emerald-400 border-emerald-400 scale-105' : 'border-gray-300 opacity-80 hover:opacity-100'
         )}
       />
-      {/* Custom Color Picker */}
+
+      {/* Studio Blue */}
+      <button
+        type="button"
+        title="Studio Blue (#1E40AF)"
+        onClick={() => setBgChoice('blue')}
+        className={cn(
+          'w-6 h-6 rounded-lg border bg-blue-700 transition-all shadow-sm',
+          bgChoice === 'blue' ? 'ring-2 ring-emerald-400 border-white scale-105' : 'border-transparent opacity-80 hover:opacity-100'
+        )}
+      />
+
+      {/* Custom Color */}
       <label
-        title="Custom Background Color"
+        title="Custom Color (Pick any color)"
         className={cn(
           'w-6 h-6 rounded-lg border cursor-pointer relative overflow-hidden transition-all shadow-sm flex items-center justify-center',
-          bgChoice === 'custom' ? 'ring-2 ring-primary border-primary scale-105' : 'border-gray-300 opacity-80 hover:opacity-100'
+          bgChoice === 'custom' ? 'ring-2 ring-emerald-400 border-white scale-105' : 'border-gray-400/50 opacity-80 hover:opacity-100'
         )}
         style={{ backgroundColor: customBgColor }}
       >
@@ -342,7 +373,7 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
             <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
               <AssetBadge target="video" status={state.video_status} />
               <AssetBadge target="thumbnail" status={state.thumbnail_status} />
-              <span className="text-xs text-gray-400">{images.length} images (compare original vs enhanced)</span>
+              <span className="text-xs text-gray-400">{images.length} images (compare original vs replaced)</span>
             </div>
           </div>
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500" aria-label="Close">
@@ -350,7 +381,7 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
           </button>
         </div>
 
-        {/* Tabs & BG preview switcher bar */}
+        {/* Tabs bar */}
         <div className="px-5 sm:px-6 pt-3 flex flex-wrap items-center justify-between gap-3">
           <div className="inline-flex p-1 rounded-xl bg-gray-100 gap-1 w-full sm:w-auto">
             {TABS.map((t) => (
@@ -371,9 +402,8 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
             ))}
           </div>
 
-          {/* Interactive BG color switcher */}
-          <div className="flex items-center gap-2">
-            {renderBgSwitcher()}
+          <div className="text-xs text-gray-400 hidden sm:block">
+            Click any image to inspect side-by-side with canvas background
           </div>
         </div>
 
@@ -409,22 +439,22 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
                 const isSel = sel[tab].has(img.id)
                 const inOther = sel[otherTab].has(img.id)
                 const enhanced = isEnhancedImage(img)
+                const isReplaced = img.is_replaced || enhanced
                 return (
                   <div
                     key={img.id}
                     onClick={() => toggle(img.id)}
                     className={cn(
-                      'group relative rounded-xl overflow-hidden aspect-[4/3] cursor-pointer transition-all ring-2 shadow-sm',
+                      'group relative rounded-xl overflow-hidden aspect-[4/3] cursor-pointer transition-all ring-2 shadow-sm bg-slate-100',
                       isSel ? `${activeTab.ring} shadow-md scale-[0.98]` : 'ring-transparent hover:ring-gray-300',
                       locked && 'cursor-not-allowed opacity-80'
                     )}
-                    style={bgStyle}
                   >
                     {img.url && !broken.has(img.id) ? (
                       <img
                         src={img.url} alt={img.file_name} loading="lazy"
                         onError={() => setBroken((b) => new Set(b).add(img.id))}
-                        className={cn('w-full h-full object-contain p-1.5 transition-transform duration-300', !isSel && 'group-hover:scale-105')}
+                        className={cn('w-full h-full object-contain p-2 transition-transform duration-300', !isSel && 'group-hover:scale-105')}
                       />
                     ) : (
                       <div className="w-full h-full flex items-center justify-center text-gray-300"><PhotoIcon className="w-10 h-10" /></div>
@@ -455,19 +485,22 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
                           <ArrowDownTrayIcon className="w-3.5 h-3.5" />
                         )}
                       </button>
-                      {/* Preview / Inspect on BG */}
+                      {/* Preview / Side-by-Side Comparison */}
                       <button
-                        title="Preview with BG switcher" onClick={(e) => { e.stopPropagation(); setPreview(idx) }}
+                        title="Inspect side-by-side & canvas background"
+                        onClick={(e) => { e.stopPropagation(); setPreview(idx); setViewMode('split') }}
                         className="p-1.5 rounded-lg bg-black/60 text-white hover:bg-black/85 shadow-sm"
                       ><ArrowsPointingOutIcon className="w-3.5 h-3.5" /></button>
                       {/* Add Enhanced Version alongside */}
                       <button
-                        title="Add enhanced version alongside (keeps original)" onClick={(e) => { e.stopPropagation(); startUpload(img, 'enhanced') }}
+                        title="Add enhanced version alongside (keeps original)"
+                        onClick={(e) => { e.stopPropagation(); startUpload(img, 'enhanced') }}
                         className="p-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
                       ><SparklesIcon className="w-3.5 h-3.5" /></button>
                       {/* Replace */}
                       <button
-                        title="Replace this image" onClick={(e) => { e.stopPropagation(); startUpload(img, 'replace') }}
+                        title="Replace this image"
+                        onClick={(e) => { e.stopPropagation(); startUpload(img, 'replace') }}
                         className="p-1.5 rounded-lg bg-black/60 text-white hover:bg-black/85 shadow-sm"
                       ><ArrowUpTrayIcon className="w-3.5 h-3.5" /></button>
                     </div>
@@ -476,10 +509,16 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
                     <div className="absolute bottom-0 inset-x-0 p-2 bg-gradient-to-t from-black/80 via-black/40 to-transparent flex items-end justify-between gap-1 pointer-events-none">
                       <span className="text-[10px] text-white/95 truncate font-medium">#{idx + 1} · {formatBytes(img.file_size)}</span>
                       <div className="flex flex-wrap items-center gap-1">
-                        {enhanced ? (
-                          <span className="px-1.5 py-0.5 rounded bg-emerald-500 text-[9px] font-bold text-white shadow-sm flex items-center gap-0.5">
-                            <SparklesIcon className="w-2.5 h-2.5 inline" /> Enhanced
-                          </span>
+                        {isReplaced ? (
+                          img.file_name?.toLowerCase().includes('enhanced') ? (
+                            <span className="px-1.5 py-0.5 rounded bg-emerald-600 text-[9px] font-bold text-white shadow-sm flex items-center gap-0.5">
+                              <SparklesIcon className="w-2.5 h-2.5 inline" /> Enhanced
+                            </span>
+                          ) : (
+                            <span className="px-1.5 py-0.5 rounded bg-indigo-600 text-[9px] font-bold text-white shadow-sm flex items-center gap-0.5">
+                              <ArrowPathIcon className="w-2.5 h-2.5 inline" /> Replaced
+                            </span>
+                          )
                         ) : (
                           <span className="px-1.5 py-0.5 rounded bg-slate-800/90 text-[9px] font-medium text-white/90">
                             Original
@@ -520,7 +559,7 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
 
         {/* Upload confirmation dialog (Enhanced alongside OR Replace) */}
         {pending && (
-          <div className="absolute inset-0 z-30 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={uploading ? undefined : cancelPending}>
+          <div className="absolute inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={uploading ? undefined : cancelPending}>
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center justify-between">
                 <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
@@ -563,101 +602,144 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
                   )}
                 >
                   <ArrowUpTrayIcon className="w-3.5 h-3.5" />
-                  Replace Directly
+                  Replace (Overwrite slot)
                 </button>
               </div>
 
-              {/* Side-by-side preview with background color test */}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <p className="text-[11px] uppercase tracking-wide text-gray-400 font-semibold mb-1">Original Reference</p>
-                  <div className="aspect-[4/3] rounded-lg overflow-hidden border border-gray-200" style={bgStyle}>
-                    {pending.image.url && <img src={pending.image.url} className="w-full h-full object-contain p-1" alt="current" />}
-                  </div>
-                </div>
-                <div>
-                  <p className="text-[11px] uppercase tracking-wide text-gray-400 font-semibold mb-1">New Upload Preview</p>
-                  <div className="aspect-[4/3] rounded-lg overflow-hidden border border-gray-200" style={bgStyle}>
-                    <img src={pending.localUrl} className="w-full h-full object-contain p-1" alt="new" />
-                  </div>
-                </div>
-              </div>
-
-              {/* Background Color Quick Selector inside dialog */}
-              <div className="flex items-center justify-between bg-slate-50 p-2.5 rounded-xl border border-gray-100">
-                <span className="text-xs text-gray-500 font-medium">Test background color:</span>
-                {renderBgSwitcher()}
-              </div>
-
-              {/* Informative notice */}
-              <div className={cn(
-                'flex gap-2 rounded-lg p-3 text-xs leading-relaxed border',
-                pending.mode === 'enhanced' ? 'bg-emerald-50 border-emerald-200 text-emerald-900' : 'bg-amber-50 border-amber-200 text-amber-800'
-              )}>
+              {/* Explanation notice */}
+              <div className={cn('p-3 rounded-xl text-xs space-y-1', pending.mode === 'enhanced' ? 'bg-emerald-50 text-emerald-900 border border-emerald-200' : 'bg-amber-50 text-amber-900 border border-amber-200')}>
                 {pending.mode === 'enhanced' ? (
                   <>
-                    <SparklesIcon className="w-4 h-4 flex-shrink-0 mt-0.5 text-emerald-600" />
-                    <span>
-                      The original image will <b>NOT</b> be replaced. The enhanced image will be stored in S3 alongside it, and both will appear in the gallery so you can compare and select either one.
-                    </span>
+                    <p className="font-bold">Recommended: Non-destructive addition</p>
+                    <p className="text-[11px] leading-relaxed">
+                      Saves in the same S3 directory with <code>-enhanced</code> suffix. Both original and enhanced versions remain in the gallery so you can compare and choose which one to use.
+                    </p>
                   </>
                 ) : (
                   <>
-                    <ExclamationTriangleIcon className="w-4 h-4 flex-shrink-0 mt-0.5" />
-                    <span>{SHARED_NOTICE}</span>
+                    <p className="font-bold">Caution: Slot replacement</p>
+                    <p className="text-[11px] leading-relaxed">
+                      Overwrites this image slot. Both video and thumbnail selections pointing here will switch to the new image.
+                    </p>
                   </>
                 )}
               </div>
 
-              <div className="flex justify-end gap-2 pt-1">
-                <button onClick={cancelPending} disabled={uploading} className="px-4 py-2 rounded-lg text-sm font-medium text-gray-600 hover:bg-gray-100">Cancel</button>
+              {/* Preview Comparison */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1">
+                  <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">Current Image</p>
+                  <div className="aspect-[4/3] rounded-xl overflow-hidden bg-gray-100 border border-gray-200 flex items-center justify-center p-1">
+                    <img src={pending.image.url || ''} alt="Current" className="w-full h-full object-contain" />
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
+                    {pending.mode === 'enhanced' ? 'New Enhanced Image' : 'New Replacement'}
+                  </p>
+                  <div className="aspect-[4/3] rounded-xl overflow-hidden bg-gray-100 border border-gray-200 flex items-center justify-center p-1">
+                    <img src={pending.localUrl} alt="New upload" className="w-full h-full object-contain" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Action buttons */}
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-gray-100">
                 <button
-                  onClick={confirmUpload} disabled={uploading}
+                  type="button"
+                  onClick={cancelPending}
+                  disabled={uploading}
+                  className="px-4 py-2 rounded-lg text-xs font-semibold text-gray-600 hover:bg-gray-100"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  onClick={confirmUpload}
+                  disabled={uploading}
                   className={cn(
-                    'inline-flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold text-white shadow transition-all disabled:opacity-60',
+                    'inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white shadow-sm transition-all',
                     pending.mode === 'enhanced' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700'
                   )}
                 >
                   {uploading ? (
-                    <ArrowPathIcon className="w-4 h-4 animate-spin" />
+                    <>
+                      <ArrowPathIcon className="w-4 h-4 animate-spin" /> Uploading to S3…
+                    </>
                   ) : pending.mode === 'enhanced' ? (
-                    <SparklesIcon className="w-4 h-4" />
+                    <>
+                      <SparklesIcon className="w-4 h-4" /> Save Enhanced Version
+                    </>
                   ) : (
-                    <ArrowUpTrayIcon className="w-4 h-4" />
+                    <>
+                      <ArrowUpTrayIcon className="w-4 h-4" /> Confirm Replace
+                    </>
                   )}
-                  {pending.mode === 'enhanced' ? 'Save alongside original' : 'Replace in both'}
                 </button>
               </div>
             </div>
           </div>
         )}
 
-        {/* Lightbox / Full-screen Image Inspector with BG preview */}
+        {/* ── LIGHTBOX / SIDE-BY-SIDE SPLIT SCREEN COMPARISON MODAL ── */}
         {previewImg && (
           <div
-            className="absolute inset-0 z-40 bg-black/92 flex flex-col items-center justify-center"
+            className="fixed inset-0 z-50 bg-black/95 flex flex-col items-center justify-between"
             onClick={() => setPreview(null)}
           >
-            {/* Top bar with file name, BG Switcher, and controls */}
-            <div className="absolute top-0 inset-x-0 flex items-center justify-between px-4 py-3 bg-gradient-to-b from-black/80 to-transparent z-10 gap-3" onClick={(e) => e.stopPropagation()}>
-              <div className="flex items-center gap-2 min-w-0">
-                <p className="text-xs text-white/90 font-medium truncate max-w-xs">{previewImg.file_name}</p>
-                {isEnhancedImage(previewImg) ? (
-                  <span className="px-2 py-0.5 rounded bg-emerald-500 text-[10px] font-bold text-white shadow-sm flex items-center gap-1">
-                    <SparklesIcon className="w-3 h-3" /> Enhanced
+            {/* Top Navigation & Controls Bar */}
+            <div
+              className="w-full flex items-center justify-between px-4 sm:px-6 py-3 bg-black/80 border-b border-white/10 z-10 gap-3"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Left: File Info & Badge */}
+              <div className="flex items-center gap-2.5 min-w-0">
+                <p className="text-xs sm:text-sm text-white font-medium truncate max-w-xs sm:max-w-md">
+                  {previewImg.file_name}
+                </p>
+                {previewImg.is_replaced || isEnhancedImage(previewImg) ? (
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/90 text-[10px] font-bold text-white shadow-sm flex items-center gap-1">
+                    <SparklesIcon className="w-3 h-3" /> Enhanced / Replaced
                   </span>
                 ) : (
-                  <span className="px-2 py-0.5 rounded bg-slate-700 text-[10px] font-medium text-white/90">
+                  <span className="px-2 py-0.5 rounded-full bg-slate-700 text-[10px] font-medium text-white/90">
                     Original
                   </span>
                 )}
               </div>
 
-              {/* Background Color Switcher inside Lightbox */}
-              <div className="flex items-center gap-2">
-                {renderBgSwitcher()}
+              {/* Center: Split View vs Single View Mode Switcher (when original exists) */}
+              {hasOriginal && (
+                <div className="hidden sm:inline-flex items-center p-0.5 rounded-lg bg-white/10 border border-white/10 text-xs">
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('split')}
+                    className={cn(
+                      'px-3 py-1 rounded-md font-semibold transition-all flex items-center gap-1.5',
+                      viewMode === 'split' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-300 hover:text-white'
+                    )}
+                  >
+                    <ViewColumnsIcon className="w-3.5 h-3.5" /> Side-by-Side Comparison
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setViewMode('single')}
+                    className={cn(
+                      'px-3 py-1 rounded-md font-semibold transition-all flex items-center gap-1.5',
+                      viewMode === 'single' ? 'bg-emerald-600 text-white shadow-sm' : 'text-slate-300 hover:text-white'
+                    )}
+                  >
+                    <RectangleStackIcon className="w-3.5 h-3.5" /> Single Focus
+                  </button>
+                </div>
+              )}
 
-                {/* Download */}
+              {/* Right: Background switcher & Action buttons */}
+              <div className="flex items-center gap-2">
+                {/* BG Switcher directly in top bar for quick access */}
+                {renderBgSwitcher(true)}
+
+                {/* Direct Download */}
                 <button
                   type="button"
                   title="Download image"
@@ -671,8 +753,11 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
                     <ArrowDownTrayIcon className="w-5 h-5" />
                   )}
                 </button>
+
                 {/* Close */}
                 <button
+                  type="button"
+                  title="Close preview (Esc)"
                   className="p-2 rounded-full bg-white/10 text-white hover:bg-white/25 transition-colors"
                   onClick={() => setPreview(null)}
                 >
@@ -681,17 +766,19 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
               </div>
             </div>
 
-            {/* Prev / Next */}
+            {/* Prev / Next navigation arrows */}
             {images.length > 1 && (
               <>
                 <button
-                  className="absolute left-3 top-1/2 -translate-y-1/2 z-10 p-3 rounded-full bg-white/10 text-white hover:bg-white/25 transition-colors"
+                  title="Previous image (Left arrow)"
+                  className="absolute left-2 sm:left-4 top-1/2 -translate-y-1/2 z-20 p-2.5 sm:p-3 rounded-full bg-black/60 text-white hover:bg-black/85 border border-white/20 transition-all shadow-xl"
                   onClick={(e) => { e.stopPropagation(); setPreview((preview! - 1 + images.length) % images.length) }}
                 >
                   <ChevronLeftIcon className="w-6 h-6" />
                 </button>
                 <button
-                  className="absolute right-3 top-1/2 -translate-y-1/2 z-10 p-3 rounded-full bg-white/10 text-white hover:bg-white/25 transition-colors"
+                  title="Next image (Right arrow)"
+                  className="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 z-20 p-2.5 sm:p-3 rounded-full bg-black/60 text-white hover:bg-black/85 border border-white/20 transition-all shadow-xl"
                   onClick={(e) => { e.stopPropagation(); setPreview((preview! + 1) % images.length) }}
                 >
                   <ChevronRightIcon className="w-6 h-6" />
@@ -699,28 +786,132 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
               </>
             )}
 
-            {/* Image center container with selected background color */}
+            {/* ── Main Comparison / Preview Area ── */}
             <div
-              className="w-full h-full flex items-center justify-center p-12 sm:p-20 transition-all duration-200"
-              style={bgStyle}
+              className="flex-1 w-full flex items-center justify-center p-3 sm:p-6 overflow-hidden min-h-0"
               onClick={(e) => e.stopPropagation()}
             >
-              {previewImg.url && (
-                <img
-                  src={previewImg.url}
-                  alt={previewImg.file_name}
-                  className="max-w-full max-h-full w-auto h-auto object-contain rounded-lg drop-shadow-2xl transition-all"
-                  style={{ maxWidth: '92%', maxHeight: '85%' }}
-                />
+              {hasOriginal && viewMode === 'split' ? (
+                /* SPLIT-SCREEN SIDE-BY-SIDE VIEW: Left = Original, Right = Replaced with Canvas Compositor */
+                <div className="w-full h-full flex flex-col md:flex-row gap-4 items-stretch justify-center max-w-7xl">
+                  {/* Left Column: Original Image (Before) */}
+                  <div className="flex-1 flex flex-col bg-zinc-900/95 rounded-2xl border border-white/10 overflow-hidden shadow-2xl min-h-0">
+                    <div className="flex items-center justify-between px-4 py-2.5 bg-black/60 border-b border-white/10">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-slate-400"></span>
+                        <span className="text-xs font-bold text-white tracking-wider uppercase">
+                          Original Image (Before)
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        title="Download original untouched image"
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white text-[11px] font-medium transition-colors"
+                        onClick={() => {
+                          const a = document.createElement('a')
+                          a.href = previewImg.original_url!
+                          a.download = `original-${previewImg.file_name.replace(/\.[^/.]+$/, '.jpg')}`
+                          a.target = '_blank'
+                          a.click()
+                        }}
+                      >
+                        <ArrowDownTrayIcon className="w-3.5 h-3.5" />
+                        Download Original
+                      </button>
+                    </div>
+
+                    <div className="flex-1 flex items-center justify-center p-4 relative overflow-hidden bg-black/40">
+                      <img
+                        src={previewImg.original_url!}
+                        alt="Original (Before)"
+                        className="max-w-full max-h-full object-contain rounded-lg shadow-xl"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Right Column: Replaced / Enhanced Image with REAL CANVAS BACKGROUND COMPOSITING */}
+                  <div className="flex-1 flex flex-col bg-zinc-900/95 rounded-2xl border border-white/10 overflow-hidden shadow-2xl min-h-0">
+                    <div className="flex items-center justify-between px-4 py-2.5 bg-black/60 border-b border-white/10 gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
+                        <span className="text-xs font-bold text-emerald-400 tracking-wider uppercase flex items-center gap-1.5">
+                          <SparklesIcon className="w-3.5 h-3.5" /> Replaced / Enhanced (After)
+                        </span>
+                      </div>
+
+                      <div className="flex items-center gap-2">
+                        {/* Download canvas composited image button */}
+                        <button
+                          type="button"
+                          title="Download cutout with chosen background directly as file"
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] font-medium transition-colors shadow-sm"
+                          onClick={() => canvasRef.current?.downloadComposited(`canvas-${previewImg.file_name}`)}
+                        >
+                          <ArrowDownTrayIcon className="w-3.5 h-3.5" />
+                          Download with BG
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Canvas image container: Background is drawn on the image canvas itself, NO outer div styling! */}
+                    <div className="flex-1 flex items-center justify-center p-4 relative overflow-hidden bg-black/40">
+                      {previewImg.url && (
+                        <CanvasImageCompositor
+                          ref={canvasRef}
+                          src={previewImg.url}
+                          bgColor={activeBgColor}
+                          alt={previewImg.file_name}
+                        />
+                      )}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                /* SINGLE VIEW (or image without a separate original) */
+                <div className="w-full h-full flex flex-col items-center justify-center max-w-5xl bg-zinc-900/80 rounded-2xl border border-white/10 p-4 overflow-hidden relative">
+                  {/* If image is a cutout or enhanced, render on Canvas compositor */}
+                  {isEnhancedImage(previewImg) || previewImg.url?.endsWith('.png') ? (
+                    <CanvasImageCompositor
+                      ref={canvasRef}
+                      src={previewImg.url!}
+                      bgColor={activeBgColor}
+                      alt={previewImg.file_name}
+                    />
+                  ) : (
+                    <img
+                      src={previewImg.url!}
+                      alt={previewImg.file_name}
+                      className="max-w-full max-h-full object-contain rounded-lg shadow-2xl"
+                    />
+                  )}
+                </div>
               )}
             </div>
 
-            {/* Bottom counter */}
-            <div className="absolute bottom-4 inset-x-0 flex items-center justify-center gap-2 pointer-events-none">
-              <span className="text-xs text-white/90 bg-black/60 px-3.5 py-1.5 rounded-full backdrop-blur-sm shadow">
-                {preview! + 1} / {images.length}
+            {/* Bottom info bar */}
+            <div className="w-full flex items-center justify-between px-6 py-2.5 bg-black/80 border-t border-white/10 text-xs text-slate-400 pointer-events-auto">
+              <div>
+                <span>Image {preview! + 1} of {images.length}</span>
                 {previewImg.file_size ? ` · ${formatBytes(previewImg.file_size)}` : ''}
-              </span>
+                {previewImg.mime_type ? ` · ${previewImg.mime_type}` : ''}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => startUpload(previewImg, 'enhanced')}
+                  className="px-3 py-1 rounded-lg bg-emerald-600/80 hover:bg-emerald-600 text-white font-medium transition-colors flex items-center gap-1"
+                >
+                  <SparklesIcon className="w-3.5 h-3.5" /> Add Enhanced Version
+                </button>
+                <button
+                  type="button"
+                  onClick={() => startUpload(previewImg, 'replace')}
+                  className="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white font-medium transition-colors flex items-center gap-1"
+                >
+                  <ArrowUpTrayIcon className="w-3.5 h-3.5" /> Replace
+                </button>
+              </div>
             </div>
           </div>
         )}

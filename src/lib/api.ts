@@ -57,6 +57,7 @@ export interface GalleryImage {
   is_video_source: boolean
   is_thumbnail_source: boolean
   is_replaced: boolean
+  original_url?: string | null
 }
 
 export interface GalleryResponse {
