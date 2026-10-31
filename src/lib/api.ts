@@ -352,8 +352,9 @@ class AdminApiClient {
   ): Promise<{ image: GalleryImage; used_in: AssetTarget[]; notice: string }> {
     const form = new FormData()
     form.append('image', file)
+    // Do NOT set Content-Type manually: the browser must add the multipart boundary.
     const res = await this.client.put(`/files/${fileId}/replace`, form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+      headers: { 'Content-Type': undefined },
     })
     return res.data.data
   }
@@ -365,7 +366,7 @@ class AdminApiClient {
     const form = new FormData()
     form.append('image', file)
     const res = await this.client.post(`/files/${fileId}/enhanced`, form, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+      headers: { 'Content-Type': undefined },
     })
     return res.data.data
   }

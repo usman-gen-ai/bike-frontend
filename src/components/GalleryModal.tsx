@@ -25,6 +25,7 @@ import {
   type GenerationItem,
 } from '@lib/api'
 import { cn, formatBytes } from '@lib/utils'
+import { IMAGE_ACCEPT_ATTR, prepareImageFile, firstImageFromDataTransfer } from '@lib/imageFile'
 import { AssetBadge } from './StatusBadges'
 import { CanvasImageCompositor, type CanvasImageCompositorHandle } from './CanvasImageCompositor'
 
@@ -76,8 +77,9 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
   const [broken, setBroken] = useState<Set<number>>(new Set())
   const [downloadingId, setDownloadingId] = useState<number | null>(null)
 
-  const fileInput = useRef<HTMLInputElement>(null)
-  const uploadTarget = useRef<{ image: GalleryImage; mode: 'enhanced' } | null>(null)
+  // Upload flow: 1) picker dialog (dropzone + real visible <input type=file>) -> 2) confirm dialog
+  const [picker, setPicker] = useState<{ image: GalleryImage; mode: 'enhanced' } | null>(null)
+  const [dragOver, setDragOver] = useState(false)
   const canvasRef = useRef<CanvasImageCompositorHandle>(null)
 
   // Real canvas background color string passed into CanvasImageCompositor
@@ -170,19 +172,68 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
 
   // ── upload image (enhanced alongside or replace) ─────────────────────────
   const startUpload = (img: GalleryImage, mode: 'enhanced' = 'enhanced') => {
-    uploadTarget.current = { image: img, mode }
-    fileInput.current?.click()
+    setDragOver(false)
+    setPicker({ image: img, mode })
   }
+
+  const closePicker = useCallback(() => {
+    setPicker(null)
+    setDragOver(false)
+  }, [])
+
+  // Shared by: file input change, drag & drop, clipboard paste.
+  // Validates by magic bytes / extension (NOT only file.type, which is empty in
+  // many automation tools & some browsers) and normalises the MIME type.
+  const handleChosenFile = useCallback(
+    async (raw: File | null | undefined) => {
+      if (!raw || !picker) return
+      const checked = await prepareImageFile(raw)
+      if (!checked.ok) return notify('error', checked.error)
+      setPending({
+        image: picker.image,
+        file: checked.file,
+        localUrl: URL.createObjectURL(checked.file),
+        mode: picker.mode,
+      })
+      setPicker(null)
+      setDragOver(false)
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [picker]
+  )
 
   const onFileChosen = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
+    // Read the file BEFORE clearing the input (clearing empties the FileList).
     e.target.value = ''
-    const target = uploadTarget.current
-    if (!file || !target) return
-    if (!file.type.startsWith('image/')) return notify('error', 'Please choose an image file.')
-    if (file.size > 10 * 1024 * 1024) return notify('error', 'Image must be 10 MB or smaller.')
-    setPending({ image: target.image, file, localUrl: URL.createObjectURL(file), mode: target.mode })
+    void handleChosenFile(file)
   }
+
+  const onDropFile = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setDragOver(false)
+    void handleChosenFile(firstImageFromDataTransfer(e.dataTransfer))
+  }
+
+  // Ctrl/Cmd+V a screenshot or copied image while the picker is open.
+  useEffect(() => {
+    if (!picker) return
+    const onPaste = (e: ClipboardEvent) => {
+      const f = firstImageFromDataTransfer(e.clipboardData)
+      if (f) {
+        e.preventDefault()
+        void handleChosenFile(f)
+      }
+    }
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closePicker() }
+    document.addEventListener('paste', onPaste)
+    document.addEventListener('keydown', onKey)
+    return () => {
+      document.removeEventListener('paste', onPaste)
+      document.removeEventListener('keydown', onKey)
+    }
+  }, [picker, handleChosenFile, closePicker])
 
   const cancelPending = useCallback(() => {
     setPending((p) => {
@@ -458,7 +509,7 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
                     </div>
 
                     {/* Action buttons on card hover */}
-                    <div className="absolute top-2 right-2 flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity">
+                    <div className="absolute top-2 right-2 flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-within:opacity-100 [@media(hover:none)]:!opacity-100 transition-opacity">
                       {/* Download */}
                       <button
                         title="Download image"
@@ -537,11 +588,68 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
           </div>
         </div>
 
-        <input ref={fileInput} type="file" accept="image/jpeg,image/png,image/webp,image/avif,image/gif" className="hidden" onChange={onFileChosen} />
+        {/* ── Step 1: choose image (works with mouse, drag&drop, paste, automation & AI browsers) ── */}
+        {picker && (
+          <div
+            className="fixed inset-0 z-[60] bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Upload enhanced image"
+            data-testid="enhanced-upload-dialog"
+            onClick={closePicker}
+          >
+            <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between">
+                <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
+                  <ArrowUpTrayIcon className="w-5 h-5 text-violet-600" />
+                  Choose enhanced image
+                </h3>
+                <button type="button" onClick={closePicker} aria-label="Close" className="p-1 rounded-lg text-gray-400 hover:bg-gray-100">
+                  <XMarkIcon className="w-5 h-5" />
+                </button>
+              </div>
+
+              {/* The <input> is a REAL, laid-out, full-size element stacked on top of the
+                  dropzone (opacity 0, not display:none). Because it is not display:none it is
+                  visible to automation/AI agents and clicking it opens the native chooser
+                  in every browser, including Safari/iOS and Firefox. */}
+              <div
+                className={cn(
+                  'relative rounded-xl border-2 border-dashed p-8 text-center transition-colors',
+                  dragOver ? 'border-violet-500 bg-violet-50' : 'border-gray-300 bg-gray-50 hover:bg-gray-100'
+                )}
+                onDragEnter={(e) => { e.preventDefault(); setDragOver(true) }}
+                onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; setDragOver(true) }}
+                onDragLeave={(e) => { e.preventDefault(); setDragOver(false) }}
+                onDrop={onDropFile}
+              >
+                <ArrowUpTrayIcon className="w-8 h-8 mx-auto text-violet-500" />
+                <p className="mt-2 text-sm font-semibold text-gray-800">Click to choose, or drag &amp; drop an image here</p>
+                <p className="mt-1 text-xs text-gray-500">You can also paste (Ctrl/⌘ + V). JPG, PNG, WEBP, AVIF, GIF · max 10 MB</p>
+                <input
+                  id="enhanced-image-input"
+                  name="image"
+                  type="file"
+                  accept={IMAGE_ACCEPT_ATTR}
+                  aria-label="Choose enhanced image file"
+                  data-testid="enhanced-image-input"
+                  onChange={onFileChosen}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                />
+              </div>
+
+              <div className="flex justify-end">
+                <button type="button" onClick={closePicker} className="px-4 py-2 rounded-lg text-xs font-semibold text-gray-600 hover:bg-gray-100">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Upload confirmation dialog (Enhanced alongside OR Replace) */}
         {pending && (
-          <div className="absolute inset-0 z-50 bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4" onClick={uploading ? undefined : cancelPending}>
+          <div className="fixed inset-0 z-[60] bg-slate-900/70 backdrop-blur-sm flex items-center justify-center p-4" role="dialog" aria-modal="true" data-testid="enhanced-confirm-dialog" onClick={uploading ? undefined : cancelPending}>
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center justify-between">
                 <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
