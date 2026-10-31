@@ -35,10 +35,6 @@ interface Props {
   notify: (kind: 'success' | 'error' | 'info', message: string, ms?: number) => void
 }
 
-const SHARED_NOTICE =
-  'This is one single image shared by BOTH the video and thumbnail sections, so replacing it changes it in both places. ' +
-  'The previous file stays stored in S3 (it is not deleted).'
-
 const sameSet = (a: Set<number>, b: Set<number>) => a.size === b.size && [...a].every((x) => b.has(x))
 
 const TABS: { target: AssetTarget; label: string; icon: typeof PhotoIcon; active: string; ring: string; chip: string }[] = [
@@ -75,13 +71,13 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
 
   const [preview, setPreview] = useState<number | null>(null) // index in images
   const [viewMode, setViewMode] = useState<'split' | 'single'>('split')
-  const [pending, setPending] = useState<{ image: GalleryImage; file: File; localUrl: string; mode: 'enhanced' | 'replace' } | null>(null)
+  const [pending, setPending] = useState<{ image: GalleryImage; file: File; localUrl: string; mode: 'enhanced' } | null>(null)
   const [uploading, setUploading] = useState(false)
   const [broken, setBroken] = useState<Set<number>>(new Set())
   const [downloadingId, setDownloadingId] = useState<number | null>(null)
 
   const fileInput = useRef<HTMLInputElement>(null)
-  const uploadTarget = useRef<{ image: GalleryImage; mode: 'enhanced' | 'replace' } | null>(null)
+  const uploadTarget = useRef<{ image: GalleryImage; mode: 'enhanced' } | null>(null)
   const canvasRef = useRef<CanvasImageCompositorHandle>(null)
 
   // Real canvas background color string passed into CanvasImageCompositor
@@ -173,7 +169,7 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
   }
 
   // ── upload image (enhanced alongside or replace) ─────────────────────────
-  const startUpload = (img: GalleryImage, mode: 'enhanced' | 'replace') => {
+  const startUpload = (img: GalleryImage, mode: 'enhanced' = 'enhanced') => {
     uploadTarget.current = { image: img, mode }
     fileInput.current?.click()
   }
@@ -199,17 +195,10 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
     if (!pending) return
     setUploading(true)
     try {
-      if (pending.mode === 'enhanced') {
-        const res = await adminApi.addEnhancedImage(pending.image.id, pending.file)
-        setImages((list) => list.map((i) => (i.id === res.image.id ? res.image : i)))
-        setBroken((b) => { const n = new Set(b); n.delete(res.image.id); return n })
-        notify('success', 'Enhanced image saved. Left = original, right = enhanced.', 6000)
-      } else {
-        const res = await adminApi.replaceImage(pending.image.id, pending.file)
-        setImages((list) => list.map((i) => (i.id === res.image.id ? res.image : i)))
-        setBroken((b) => { const n = new Set(b); n.delete(res.image.id); return n })
-        notify('success', res.notice || SHARED_NOTICE, 9000)
-      }
+      const res = await adminApi.addEnhancedImage(pending.image.id, pending.file)
+      setImages((list) => list.map((i) => (i.id === res.image.id ? res.image : i)))
+      setBroken((b) => { const n = new Set(b); n.delete(res.image.id); return n })
+      notify('success', 'Enhanced image saved. Left = original, right = enhanced. Video/thumbnail will use the enhanced one.', 7000)
       cancelPending()
     } catch (e) {
       notify('error', getErrorMessage(e))
@@ -290,8 +279,8 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
         title="Pure White Background"
         onClick={() => setBgChoice('white')}
         className={cn(
-          'w-6 h-6 rounded-lg border bg-white transition-all shadow-sm',
-          bgChoice === 'white' ? 'ring-2 ring-emerald-400 border-emerald-400 scale-105' : 'border-gray-300 opacity-80 hover:opacity-100'
+          'w-6 h-6 rounded-lg border-2 bg-white transition-all shadow-sm',
+          bgChoice === 'white' ? 'ring-2 ring-emerald-400 border-emerald-400 scale-105' : 'border-gray-400 opacity-100 hover:scale-105'
         )}
       />
 
@@ -495,12 +484,6 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
                         onClick={(e) => { e.stopPropagation(); startUpload(img, 'enhanced') }}
                         className="p-1.5 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 shadow-sm"
                       ><SparklesIcon className="w-3.5 h-3.5" /></button>
-                      {/* Replace */}
-                      <button
-                        title="Replace this image"
-                        onClick={(e) => { e.stopPropagation(); startUpload(img, 'replace') }}
-                        className="p-1.5 rounded-lg bg-black/60 text-white hover:bg-black/85 shadow-sm"
-                      ><ArrowUpTrayIcon className="w-3.5 h-3.5" /></button>
                     </div>
 
                     {/* Footer chips */}
@@ -555,66 +538,20 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
             <div className="bg-white rounded-2xl shadow-2xl w-full max-w-lg p-5 space-y-4" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center justify-between">
                 <h3 className="text-base font-bold text-gray-900 flex items-center gap-2">
-                  {pending.mode === 'enhanced' ? (
-                    <>
-                      <SparklesIcon className="w-5 h-5 text-emerald-600" />
-                      Upload Enhanced Image
-                    </>
-                  ) : (
-                    <>
-                      <ArrowUpTrayIcon className="w-5 h-5 text-amber-600" />
-                      Replace Existing Image
-                    </>
-                  )}
+                  <SparklesIcon className="w-5 h-5 text-emerald-600" />
+                  Upload Enhanced Image
                 </h3>
                 <button onClick={cancelPending} className="p-1 rounded-lg text-gray-400 hover:bg-gray-100">
                   <XMarkIcon className="w-5 h-5" />
                 </button>
               </div>
 
-              {/* Upload Mode Switcher */}
-              <div className="flex rounded-lg bg-gray-100 p-1 gap-1 text-xs font-semibold">
-                <button
-                  type="button"
-                  onClick={() => setPending((p) => (p ? { ...p, mode: 'enhanced' } : null))}
-                  className={cn(
-                    'flex-1 py-1.5 px-3 rounded-md transition-all flex items-center justify-center gap-1.5',
-                    pending.mode === 'enhanced' ? 'bg-emerald-600 text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'
-                  )}
-                >
-                  <SparklesIcon className="w-3.5 h-3.5" />
-                  Enhanced (Before / After)
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setPending((p) => (p ? { ...p, mode: 'replace' } : null))}
-                  className={cn(
-                    'flex-1 py-1.5 px-3 rounded-md transition-all flex items-center justify-center gap-1.5',
-                    pending.mode === 'replace' ? 'bg-amber-600 text-white shadow-sm' : 'text-gray-600 hover:text-gray-900'
-                  )}
-                >
-                  <ArrowUpTrayIcon className="w-3.5 h-3.5" />
-                  Plain Replace
-                </button>
-              </div>
-
               {/* Explanation notice */}
-              <div className={cn('p-3 rounded-xl text-xs space-y-1', pending.mode === 'enhanced' ? 'bg-emerald-50 text-emerald-900 border border-emerald-200' : 'bg-amber-50 text-amber-900 border border-amber-200')}>
-                {pending.mode === 'enhanced' ? (
-                  <>
-                    <p className="font-bold">Recommended: Enhanced version (same card)</p>
-                    <p className="text-[11px] leading-relaxed">
-                      The enhanced image takes this card's place. The untouched original stays safely in S3 and is shown on the LEFT in the preview, enhanced on the RIGHT.
-                    </p>
-                  </>
-                ) : (
-                  <>
-                    <p className="font-bold">Caution: Slot replacement</p>
-                    <p className="text-[11px] leading-relaxed">
-                      Overwrites this image slot. Both video and thumbnail selections pointing here will switch to the new image.
-                    </p>
-                  </>
-                )}
+              <div className="p-3 rounded-xl text-xs space-y-1 bg-emerald-50 text-emerald-900 border border-emerald-200">
+                <p className="font-bold">Enhanced version (same card)</p>
+                <p className="text-[11px] leading-relaxed">
+                  The enhanced image takes this card's place and is the one used for video / thumbnail. The untouched original stays safely in S3 and is shown on the LEFT in the preview, enhanced on the RIGHT.
+                </p>
               </div>
 
               {/* Preview Comparison */}
@@ -627,7 +564,7 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
                 </div>
                 <div className="space-y-1">
                   <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wide">
-                    {pending.mode === 'enhanced' ? 'New Enhanced Image' : 'New Replacement'}
+                    New Enhanced Image
                   </p>
                   <div className="aspect-[4/3] rounded-xl overflow-hidden bg-gray-100 border border-gray-200 flex items-center justify-center p-1">
                     <img src={pending.localUrl} alt="New upload" className="w-full h-full object-contain" />
@@ -649,22 +586,15 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
                   type="button"
                   onClick={confirmUpload}
                   disabled={uploading}
-                  className={cn(
-                    'inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white shadow-sm transition-all',
-                    pending.mode === 'enhanced' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-amber-600 hover:bg-amber-700'
-                  )}
+                  className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white shadow-sm transition-all bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60"
                 >
                   {uploading ? (
                     <>
                       <ArrowPathIcon className="w-4 h-4 animate-spin" /> Uploading to S3…
                     </>
-                  ) : pending.mode === 'enhanced' ? (
-                    <>
-                      <SparklesIcon className="w-4 h-4" /> Save Enhanced Version
-                    </>
                   ) : (
                     <>
-                      <ArrowUpTrayIcon className="w-4 h-4" /> Confirm Replace
+                      <SparklesIcon className="w-4 h-4" /> Save Enhanced Version
                     </>
                   )}
                 </button>
@@ -895,13 +825,6 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
                   className="px-3 py-1 rounded-lg bg-emerald-600/80 hover:bg-emerald-600 text-white font-medium transition-colors flex items-center gap-1"
                 >
                   <SparklesIcon className="w-3.5 h-3.5" /> Add Enhanced Version
-                </button>
-                <button
-                  type="button"
-                  onClick={() => startUpload(previewImg, 'replace')}
-                  className="px-3 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-white font-medium transition-colors flex items-center gap-1"
-                >
-                  <ArrowUpTrayIcon className="w-3.5 h-3.5" /> Replace
                 </button>
               </div>
             </div>
