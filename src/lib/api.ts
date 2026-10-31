@@ -357,6 +357,18 @@ class AdminApiClient {
     return res.data.data
   }
 
+  async addEnhancedImage(
+    fileId: number,
+    file: File
+  ): Promise<{ image: GalleryImage; original_id: number; notice: string }> {
+    const form = new FormData()
+    form.append('image', file)
+    const res = await this.client.post(`/files/${fileId}/enhanced`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    })
+    return res.data.data
+  }
+
   // ── Videos ──────────────────────────────────────────────────────────────
   async createVideo(payload: CreateVideoPayload): Promise<CreateVideoResponse> {
     const res = await this.client.post('/videos', payload)
