@@ -127,30 +127,51 @@ export const CanvasImageCompositor = forwardRef<CanvasImageCompositorHandle, Pro
       }
     }
 
-    // Load image whenever src changes - CORS-SAFE approach
+    // Load image whenever src changes.
+    // 1) Try fetch -> blob (same-origin object URL => canvas is NOT tainted, so
+    //    "Download with BG" really exports the composited PNG).
+    // 2) If the bucket has no CORS, fall back to a plain <img> load: the background
+    //    preview still works, only the composited download falls back to the raw file.
     useEffect(() => {
       let isMounted = true
+      let objectUrl: string | null = null
       setLoading(true)
       setUseImgFallback(false)
+      imageCache.current = null
 
-      const img = new Image()
-      // Do NOT set crossOrigin here by default to prevent S3 bucket CORS rejection
-      img.onload = () => {
-        if (!isMounted) return
-        imageCache.current = img
-        renderCanvas(img)
-        setLoading(false)
+      const load = (url: string, onFail: () => void) => {
+        const img = new Image()
+        img.onload = () => {
+          if (!isMounted) return
+          imageCache.current = img
+          renderCanvas(img)
+          setLoading(false)
+        }
+        img.onerror = () => isMounted && onFail()
+        img.src = url
       }
-      img.onerror = (e) => {
-        console.warn('Image failed to load via new Image(), using direct <img> tag fallback:', e)
-        if (!isMounted) return
-        setLoading(false)
-        setUseImgFallback(true)
-      }
-      img.src = src
+
+      const plainLoad = () =>
+        load(src, () => {
+          setLoading(false)
+          setUseImgFallback(true)
+        })
+
+      fetch(src, { mode: 'cors', cache: 'no-store' })
+        .then((r) => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`)
+          return r.blob()
+        })
+        .then((blob) => {
+          if (!isMounted) return
+          objectUrl = URL.createObjectURL(blob)
+          load(objectUrl, plainLoad)
+        })
+        .catch(() => isMounted && plainLoad())
 
       return () => {
         isMounted = false
+        if (objectUrl) URL.revokeObjectURL(objectUrl)
       }
     }, [src])
 

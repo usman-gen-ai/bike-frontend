@@ -56,10 +56,7 @@ const PRESET_COLORS: Record<string, string> = {
   blue: '#1e40af',
 }
 
-const isEnhancedImage = (img: GalleryImage): boolean => {
-  const name = img.file_name?.toLowerCase() || ''
-  return img.is_replaced || name.includes('enhanced') || name.includes('untitled') || name.includes('-1.') || name.includes('_cutout') || img.mime_type === 'image/png'
-}
+const isEnhancedImage = (img: GalleryImage): boolean => img.is_replaced
 
 export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Props) => {
   const [images, setImages] = useState<GalleryImage[]>([])
@@ -204,8 +201,9 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
     try {
       if (pending.mode === 'enhanced') {
         const res = await adminApi.addEnhancedImage(pending.image.id, pending.file)
-        setImages((list) => [...list, res.image])
-        notify('success', 'Enhanced image added alongside original! Both are now available to compare and select.', 8000)
+        setImages((list) => list.map((i) => (i.id === res.image.id ? res.image : i)))
+        setBroken((b) => { const n = new Set(b); n.delete(res.image.id); return n })
+        notify('success', 'Enhanced image saved. Left = original, right = enhanced.', 6000)
       } else {
         const res = await adminApi.replaceImage(pending.image.id, pending.file)
         setImages((list) => list.map((i) => (i.id === res.image.id ? res.image : i)))
@@ -256,7 +254,7 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
   // Determine if active preview image has a separate original version for side-by-side comparison
   const hasOriginal = useMemo(() => {
     if (!previewImg) return false
-    return Boolean(previewImg.original_url && previewImg.original_url !== previewImg.url)
+    return Boolean(previewImg.is_replaced && previewImg.original_url)
   }, [previewImg])
 
   // Background palette switcher component (operates on the real HTML5 Canvas)
@@ -373,7 +371,7 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
             <div className="flex flex-wrap items-center gap-1.5 mt-1.5">
               <AssetBadge target="video" status={state.video_status} />
               <AssetBadge target="thumbnail" status={state.thumbnail_status} />
-              <span className="text-xs text-gray-400">{images.length} images (compare original vs replaced)</span>
+              <span className="text-xs text-gray-400">{images.length} images · enhanced ones show original vs enhanced</span>
             </div>
           </div>
           <button onClick={onClose} className="p-2 rounded-lg hover:bg-gray-100 text-gray-500" aria-label="Close">
@@ -410,7 +408,7 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
         {/* Toolbar */}
         <div className="px-5 sm:px-6 py-2.5 flex flex-wrap items-center justify-between gap-2 border-b border-gray-100">
           <p className="text-xs text-gray-500">
-            Select images for <b>{tab}</b>. Original and enhanced cutout versions are kept side-by-side.
+            Select images for <b>{tab}</b>. Enhanced images show original (left) vs enhanced (right) in the preview.
             {hasBothSelections > 0 && <span className="text-gray-400"> · {hasBothSelections} image(s) used in both.</span>}
           </p>
           <div className="flex items-center gap-1.5">
@@ -510,15 +508,9 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
                       <span className="text-[10px] text-white/95 truncate font-medium">#{idx + 1} · {formatBytes(img.file_size)}</span>
                       <div className="flex flex-wrap items-center gap-1">
                         {isReplaced ? (
-                          img.file_name?.toLowerCase().includes('enhanced') ? (
-                            <span className="px-1.5 py-0.5 rounded bg-emerald-600 text-[9px] font-bold text-white shadow-sm flex items-center gap-0.5">
-                              <SparklesIcon className="w-2.5 h-2.5 inline" /> Enhanced
-                            </span>
-                          ) : (
-                            <span className="px-1.5 py-0.5 rounded bg-indigo-600 text-[9px] font-bold text-white shadow-sm flex items-center gap-0.5">
-                              <ArrowPathIcon className="w-2.5 h-2.5 inline" /> Replaced
-                            </span>
-                          )
+                          <span className="px-1.5 py-0.5 rounded bg-emerald-600 text-[9px] font-bold text-white shadow-sm flex items-center gap-0.5">
+                            <SparklesIcon className="w-2.5 h-2.5 inline" /> Enhanced
+                          </span>
                         ) : (
                           <span className="px-1.5 py-0.5 rounded bg-slate-800/90 text-[9px] font-medium text-white/90">
                             Original
@@ -566,7 +558,7 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
                   {pending.mode === 'enhanced' ? (
                     <>
                       <SparklesIcon className="w-5 h-5 text-emerald-600" />
-                      Add Enhanced Image Alongside Original
+                      Upload Enhanced Image
                     </>
                   ) : (
                     <>
@@ -591,7 +583,7 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
                   )}
                 >
                   <SparklesIcon className="w-3.5 h-3.5" />
-                  Add Alongside (Side-by-Side)
+                  Enhanced (Before / After)
                 </button>
                 <button
                   type="button"
@@ -602,7 +594,7 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
                   )}
                 >
                   <ArrowUpTrayIcon className="w-3.5 h-3.5" />
-                  Replace (Overwrite slot)
+                  Plain Replace
                 </button>
               </div>
 
@@ -610,9 +602,9 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
               <div className={cn('p-3 rounded-xl text-xs space-y-1', pending.mode === 'enhanced' ? 'bg-emerald-50 text-emerald-900 border border-emerald-200' : 'bg-amber-50 text-amber-900 border border-amber-200')}>
                 {pending.mode === 'enhanced' ? (
                   <>
-                    <p className="font-bold">Recommended: Non-destructive addition</p>
+                    <p className="font-bold">Recommended: Enhanced version (same card)</p>
                     <p className="text-[11px] leading-relaxed">
-                      Saves in the same S3 directory with <code>-enhanced</code> suffix. Both original and enhanced versions remain in the gallery so you can compare and choose which one to use.
+                      The enhanced image takes this card's place. The untouched original stays safely in S3 and is shown on the LEFT in the preview, enhanced on the RIGHT.
                     </p>
                   </>
                 ) : (
@@ -870,7 +862,7 @@ export const GalleryModal = ({ generation, onClose, onStateChange, notify }: Pro
                 /* SINGLE VIEW (or image without a separate original) */
                 <div className="w-full h-full flex flex-col items-center justify-center max-w-5xl bg-zinc-900/80 rounded-2xl border border-white/10 p-4 overflow-hidden relative">
                   {/* If image is a cutout or enhanced, render on Canvas compositor */}
-                  {isEnhancedImage(previewImg) || previewImg.url?.endsWith('.png') ? (
+                  {isEnhancedImage(previewImg) ? (
                     <CanvasImageCompositor
                       ref={canvasRef}
                       src={previewImg.url!}
